@@ -64,13 +64,22 @@ Which is only: copy `plugin/` to `~/.config/omarchy/plugins/`, `bin/` to
 | Surface | What it is | Set with |
 |---|---|---|
 | Bar panel | popup under the bar icon, like network/bluetooth | always on |
-| Wing | layer-shell strip pinned to a screen, reserving its own height | `mode wing` (default) |
-| Window | an ordinary window, tiled by the compositor | `mode window` |
-| — | bar panel only | `mode off` |
+| Wing | layer-shell strip pinned to a screen, reserving its own height | `surface wing` (default) |
+| Window | an ordinary window, tiled by the compositor | `surface window` |
+| — | bar panel only | `dashboard false` |
+
+All three are one process. Quickshell hands you a real xdg-toplevel
+(`FloatingWindow`) as readily as a layer surface, so no separate application is
+involved — and nothing here declares a `maximumSize`, which is exactly the
+mistake that makes a window untileable.
+
+The bar panel's header carries the on/off switch, the way the network and
+bluetooth panels hang a control off theirs. Or:
 
 ```bash
-omarchy bar set inocult.token-monitor mode window
-omarchy-shell inocult.token-monitor-wing toggle     # or middle-click the icon
+omarchy bar set inocult.token-monitor surface window   # wing | window
+omarchy bar set inocult.token-monitor dashboard false --json
+omarchy-shell inocult.token-monitor-wing toggle        # or middle-click the icon
 ```
 
 The wing sizes itself to its content and reserves exactly that, so the rest of
@@ -90,7 +99,8 @@ numbers and booleans, omit it for strings):
 
 | Key | Default | What it does |
 |---|---|---|
-| `mode` | `wing` | `wing`, `window` or `off` |
+| `dashboard` | `true` | the header switch writes this |
+| `surface` | `wing` | `wing` or `window` |
 | `view` | `machine` | which pivot the dashboard opens on |
 | `monitor` | *(auto)* | connector for the wing; empty picks the tallest portrait screen |
 | `heightPercent` | `0` | `0` fits content, `100` takes the whole screen |

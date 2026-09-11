@@ -27,20 +27,27 @@
       "showCost": true,
       "refreshIntervalSec": 600,
       "view": "machine",
-      "mode": "wing"
+      "surface": "wing",
+      "dashboard": true
     },
     "schema": [
       {
-        "key": "mode",
+        "key": "dashboard",
+        "type": "boolean",
+        "label": "Show the dashboard",
+        "defaultValue": true,
+        "description": "The on/off switch at the bottom of the bar panel writes this."
+      },
+      {
+        "key": "surface",
         "type": "enum",
-        "label": "Dashboard surface",
+        "label": "Dashboard form",
         "options": [
           "wing",
-          "window",
-          "off"
+          "window"
         ],
         "defaultValue": "wing",
-        "description": "wing pins it to a screen and reserves its height; window makes it an ordinary tiled window; off leaves only the bar panel."
+        "description": "wing pins it to a screen and reserves its height; window makes it an ordinary tiled window."
       },
       {
         "key": "view",

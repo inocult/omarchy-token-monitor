@@ -66,20 +66,30 @@ Item {
   readonly property int heightPercent: Math.max(0, Math.min(100, Number(setting("heightPercent", 0))))
   readonly property bool fullWing: heightPercent >= 100
   readonly property bool showCost: setting("showCost", true) !== false
-  // wing   -- a layer-shell strip pinned to a screen, reserving its own height
-  // window -- an ordinary window, tiled by Hyprland like anything else
-  // off     -- neither; the bar popup is still there
+  // Two settings rather than one three-valued one, because they answer
+  // different questions and the bar panel's on/off switch should not have to
+  // remember which form you had chosen before you switched it off.
   //
-  // Both are this same process and this same plugin. A separate application
-  // was never needed: Quickshell will hand you a real xdg-toplevel
-  // (FloatingWindow) just as readily as a layer surface, and the only reason
-  // the first version was layer-only is that a layer surface sidesteps tiling
-  // entirely -- which mattered when the thing being replaced could not be
-  // tiled. Nothing here declares a maximumSize, which is precisely the mistake
-  // that made the Electron app untileable.
-  readonly property string mode: {
-    var value = String(setting("mode", setting("wing", true) !== false ? "wing" : "off")).toLowerCase()
-    return value === "window" || value === "off" ? value : "wing"
+  //   surface   -- "wing" (a layer-shell strip pinned to a screen, reserving
+  //                its own height) or "window" (an ordinary window, tiled by
+  //                the compositor like anything else)
+  //   dashboard -- whether it is on the screen at all
+  //
+  // Both surfaces are this same process and this same plugin. A separate
+  // application was never needed: Quickshell hands you a real xdg-toplevel
+  // (FloatingWindow) as readily as a layer surface. The first version was
+  // layer-only because a layer surface sidesteps tiling entirely -- which
+  // mattered when the thing being replaced could not be tiled at all.
+  readonly property string surface: {
+    // `mode` is what the first cut of this called it; honour it so an existing
+    // shell.json keeps working rather than silently reverting to the wing.
+    var legacy = String(setting("mode", "")).toLowerCase()
+    var value = String(setting("surface", legacy === "window" ? "window" : "wing")).toLowerCase()
+    return value === "window" ? "window" : "wing"
+  }
+  readonly property bool dashboardOn: {
+    if (String(setting("mode", "")).toLowerCase() === "off") return false
+    return setting("dashboard", true) !== false
   }
 
   property bool shown: true
@@ -130,7 +140,7 @@ Item {
     // at its old global position when its monitor moves in the layout, so a
     // wing that is re-placed by a dock event keeps drawing at the old offset --
     // or off-screen entirely -- until something unmaps and remaps it.
-    visible: root.shown && root.mode === "wing" && !!root.targetScreen && !remapGuard.remapping
+    visible: root.shown && root.dashboardOn && root.surface === "wing" && !!root.targetScreen && !remapGuard.remapping
     screen: root.targetScreen
 
     // FULL WING (100%): all four edges, reserve NOTHING. A layer surface fills
@@ -203,7 +213,7 @@ Item {
   //   o.window({ title = "^Token Monitor$" }, { workspace = "1 silent" })
   FloatingWindow {
     id: windowed
-    visible: root.shown && root.mode === "window"
+    visible: root.shown && root.dashboardOn && root.surface === "window"
     title: "Token Monitor"
     color: Color.popups.background
 

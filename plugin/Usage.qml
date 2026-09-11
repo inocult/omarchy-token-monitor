@@ -40,6 +40,11 @@ Item {
   // dashboard keeps telling the truth while it sits open for hours.
   property double nowMs: Date.now()
 
+  // Something to say while it is working. The costing pass is local and takes
+  // about a tenth of a second, so this is a blink rather than a spinner -- but
+  // a header that never changes reads as a picture of a dashboard.
+  readonly property bool busy: costProcess.running || usageScan.running || syncScan.running
+
   // ------------------------------------------------------------- derived
 
   readonly property var limits: revision, Model.limitRows(records)

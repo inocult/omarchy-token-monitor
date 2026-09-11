@@ -22,6 +22,11 @@ Column {
   property var usage: null
   property bool showCost: true
 
+  // Filled by whoever mounts this. The bar popup passes its on/off switch, the
+  // way the network and bluetooth panels hang a control off their hero; the
+  // wing and the window pass nothing and the hero simply has no trailing edge.
+  property Component trailingControl: null
+
   // Which pivot is on screen. Both show the same facts; which one is useful
   // depends on the question. "machine" answers "what is that box running and
   // how close are its plans to the ceiling"; "subscription" answers "how much
@@ -37,94 +42,133 @@ Column {
   readonly property color track: Style.selectedFillFor(fg, Color.accent)
   readonly property string face: Style.fontFamily
 
+  // The line under the title, and the part of the header that moves.
+  //
+  // It cycles rather than concatenating, because the hero elides that line and
+  // the trailing switch eats the width a full sentence would need -- the first
+  // attempt read "2 MACHINES · 4 SUBSCRIPTIONS · UP…", which is three facts
+  // truncated into none. One short clause at a time says more, and gives the
+  // header the small liveness the network panel gets from its throughput.
+  property int tick: 0
+
+  Timer {
+    interval: 4000
+    running: root.visible
+    repeat: true
+    onTriggered: root.tick++
+  }
+
+  readonly property var facts: {
+    if (!usage) return ["waiting for a collector"]
+    if (usage.updatedAt === "") return ["no collector has run yet"]
+
+    var out = []
+    var machines = usage.devices.length
+    var subs = usage.subscriptions.length
+    out.push(machines + (machines === 1 ? " machine" : " machines")
+      + " · " + subs + (subs === 1 ? " plan" : " plans"))
+    out.push(Model.compactTokens(usage.todayTokens) + " tokens today")
+
+    // Whichever allowance is furthest along, which is the one worth knowing.
+    var worst = null
+    for (var i = 0; i < usage.limits.length; i++) {
+      if (!worst || usage.limits[i].percent > worst.percent) worst = usage.limits[i]
+    }
+    if (worst && worst.percent > 0) {
+      out.push(Model.shortLimit(worst.label).toLowerCase() + " " + Math.round(worst.percent * 100) + "% used")
+    }
+    out.push("updated " + Model.ago(usage.updatedAt, usage.nowMs))
+    return out
+  }
+
+  readonly property string status: {
+    if (usage && usage.busy) return "pricing transcripts"
+    var list = facts
+    return list[tick % list.length]
+  }
+
   function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
   function markFor(agent) {
     var known = ["claude", "codex", "fireworks"]
     return known.indexOf(String(agent)) === -1 ? "" : Qt.resolvedUrl("assets/" + agent + ".svg")
   }
 
+  // ----------------------------------------------------------------- header
+  //
+  // The same shape every other bar panel opens with: what this is, a line that
+  // actually changes, and the control that turns it on.
+
+  PanelHero {
+    width: parent.width
+    title: "Token Monitor"
+    foreground: root.fg
+    fontFamily: root.face
+    meta: root.status
+    // No detail pill. The hero's pill is a status badge -- a price wedged into
+    // it sits mid-row, next to nothing it relates to, and demotes the one
+    // number the panel exists to show. It belongs under the header, big.
+    trailingControl: root.trailingControl
+
+    iconComponent: Component {
+      Text {
+        text: "󱚣"
+        color: root.fg
+        font.family: root.face
+        font.pixelSize: Style.font.display
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ today
 
-  Item {
+  Column {
     width: parent.width
-    height: heroLeft.implicitHeight
+    spacing: Style.space(1)
 
-    Column {
-      id: heroLeft
-      anchors.left: parent.left
-      anchors.right: liveDot.left
-      anchors.rightMargin: Style.space(10)
-      spacing: Style.space(1)
-
-      Row {
-        spacing: Style.space(6)
-
-        Text {
-          anchors.bottom: parent.bottom
-          anchors.bottomMargin: Style.space(1)
-          visible: root.showCost
-          text: root.usage && root.usage.priced ? Model.moneyExact(root.usage.todayCost) : "--"
-          color: root.fg
-          font.family: root.face
-          font.pixelSize: Style.font.display
-          font.bold: true
-        }
-
-        Text {
-          anchors.bottom: parent.bottom
-          anchors.bottomMargin: Style.space(4)
-          text: "today"
-          color: root.fainter
-          font.family: root.face
-          font.pixelSize: Style.font.caption
-        }
-      }
+    Row {
+      spacing: Style.space(6)
 
       Text {
-        width: parent.width
-        text: Model.groupedTokens(root.usage ? root.usage.todayTokens : 0) + " tokens"
-          + (root.usage && root.usage.devices.length > 1 ? "  ·  " + root.usage.devices.length + " machines" : "")
-        color: root.dim
-        elide: Text.ElideRight
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(1)
+        visible: root.showCost
+        text: root.usage && root.usage.priced ? Model.moneyExact(root.usage.todayCost) : "--"
+        color: root.fg
         font.family: root.face
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: Style.font.display
+        font.bold: true
       }
 
-      // The dollars are this machine's transcripts priced exactly; the tokens
-      // are the whole fleet. A number that quietly means something narrower
-      // than the one above it is how a dashboard starts lying.
       Text {
-        visible: root.showCost && root.usage && root.usage.priced && root.usage.todayCostLocalOnly
-        width: parent.width
-        text: "cost is this machine only"
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(4)
+        text: "today"
         color: root.fainter
-        elide: Text.ElideRight
         font.family: root.face
         font.pixelSize: Style.font.caption
       }
     }
 
-    Row {
-      id: liveDot
-      anchors.right: parent.right
-      anchors.top: parent.top
-      anchors.topMargin: Style.space(3)
-      spacing: Style.space(5)
+    Text {
+      width: parent.width
+      text: Model.groupedTokens(root.usage ? root.usage.todayTokens : 0) + " tokens"
+      color: root.dim
+      elide: Text.ElideRight
+      font.family: root.face
+      font.pixelSize: Style.font.bodySmall
+    }
 
-      Rectangle {
-        anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(5); height: width; radius: width / 2
-        color: root.usage && root.usage.updatedAt !== "" ? root.alpha(root.fg, 0.7) : Color.urgent
-      }
-
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: root.usage && root.usage.updatedAt !== ""
-          ? Model.ago(root.usage.updatedAt, root.usage.nowMs) : "no collector"
-        color: root.fainter
-        font.family: root.face
-        font.pixelSize: Style.font.caption
-      }
+    // The dollars are this machine's transcripts priced exactly; the tokens are
+    // the whole fleet. A number that quietly means something narrower than the
+    // one beside it is how a dashboard starts lying.
+    Text {
+      visible: root.showCost && root.usage && root.usage.priced && root.usage.todayCostLocalOnly
+      width: parent.width
+      text: "cost is this machine only"
+      color: root.fainter
+      elide: Text.ElideRight
+      font.family: root.face
+      font.pixelSize: Style.font.caption
     }
   }
 
