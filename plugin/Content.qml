@@ -120,42 +120,73 @@ Column {
   }
 
   // ------------------------------------------------------------------ today
+  //
+  // The two figures side by side rather than stacked: they are one fact read
+  // two ways, and stacking them made the tokens look like a footnote to the
+  // price. The token count is compact here -- the exact digits are on the
+  // machine rows below, and at popup width the grouped form pushes the pair
+  // apart until they stop reading as a pair.
 
   Column {
     width: parent.width
-    spacing: Style.space(1)
+    spacing: Style.space(2)
 
-    Row {
-      spacing: Style.space(6)
-
-      Text {
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Style.space(1)
-        visible: root.showCost
-        text: root.usage && root.usage.priced ? Model.moneyExact(root.usage.todayCost) : "--"
-        color: root.fg
-        font.family: root.face
-        font.pixelSize: Style.font.display
-        font.bold: true
-      }
-
-      Text {
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Style.space(4)
-        text: "today"
-        color: root.fainter
-        font.family: root.face
-        font.pixelSize: Style.font.caption
-      }
-    }
-
-    Text {
+    Item {
       width: parent.width
-      text: Model.groupedTokens(root.usage ? root.usage.todayTokens : 0) + " tokens"
-      color: root.dim
-      elide: Text.ElideRight
-      font.family: root.face
-      font.pixelSize: Style.font.bodySmall
+      height: Math.max(priceRow.implicitHeight, tokenRow.implicitHeight)
+
+      Row {
+        id: priceRow
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(5)
+        visible: root.showCost
+
+        Text {
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(1)
+          text: root.usage && root.usage.priced ? Model.moneyExact(root.usage.todayCost) : "--"
+          color: root.fg
+          font.family: root.face
+          font.pixelSize: Style.font.display
+          font.bold: true
+        }
+
+        Text {
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(4)
+          text: "today"
+          color: root.fainter
+          font.family: root.face
+          font.pixelSize: Style.font.caption
+        }
+      }
+
+      Row {
+        id: tokenRow
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(5)
+
+        Text {
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(1)
+          text: Model.compactTokens(root.usage ? root.usage.todayTokens : 0)
+          color: root.fg
+          font.family: root.face
+          font.pixelSize: Style.font.display
+          font.bold: true
+        }
+
+        Text {
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(4)
+          text: "tokens"
+          color: root.fainter
+          font.family: root.face
+          font.pixelSize: Style.font.caption
+        }
+      }
     }
 
     // The dollars are this machine's transcripts priced exactly; the tokens are
