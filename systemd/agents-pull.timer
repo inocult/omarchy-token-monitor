@@ -1,0 +1,21 @@
+[Unit]
+Description=Collect AI agent usage from the other machines every 10 minutes
+Documentation=https://github.com/inocult/omarchy-token-monitor
+
+[Timer]
+# Ten minutes, because the agents panel re-merges the sync folder whenever the
+# records change and its own refresh is 900s -- pulling faster than that buys
+# nothing but wakes a laptop for it.
+OnBootSec=2min
+OnUnitActiveSec=10min
+
+# Loose enough for systemd to batch this with whatever else is waking up; the
+# numbers on a dashboard do not need second accuracy.
+AccuracySec=1min
+
+# One catch-up run after the desk has been asleep, rather than silently showing
+# yesterday's fleet until the next tick.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

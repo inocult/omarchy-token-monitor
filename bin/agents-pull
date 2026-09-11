@@ -1,0 +1,344 @@
+#!/bin/bash
+# Every machine's AI usage, on this one.
+#
+#   agents-pull            fetch each remote's usage, refresh the local cost
+#   agents-pull --list     show what is defined and how fresh each one is
+#   agents-pull --quiet    no progress output (what the timer runs)
+#
+# Omarchy's agents panel already merges a fleet: point it at a directory and
+# every *.json snapshot in there is added into today, the last seven days and
+# the all-time totals. What it has no opinion about is how the other machines'
+# snapshots get into that directory. This is that.
+#
+# It PULLS. The remotes push nothing and are never given a way to write here.
+# This is the machine that wants the data, it is the one that knows when it
+# wants it, and a remote behind NAT can still be read over the tailnet. The
+# same reasoning as herdr-remote: the connection is always outbound from the
+# desk.
+#
+# WHY IT CONVERTS INSTEAD OF COPYING. A remote that has set syncMode/syncDir in
+# its own shell.json already writes a correctly shaped snapshot, and when one is
+# there this copies it verbatim. Most will not have, so the fallback is to pull
+# the raw usage records -- which every Omarchy machine has -- and do the rename
+# here. The snapshot format is a flat rename of the record plus a three-key
+# envelope, and it is explicitly versioned for mixed-version fleets, so this is
+# far less fragile than requiring every remote to be configured first. A remote
+# is then just "a machine with Omarchy on it", which is the only thing worth
+# having to remember.
+#
+# THE STALE-TODAY TRAP, which is the one real bug this has to work around. The
+# panel applies no freshness cutoff. A snapshot pulled on Tuesday still reports
+# its todayTotalTokens on Thursday, and they land in Thursday's total as though
+# the machine had been working. recentDays self-expires (dates outside the
+# seven-day window are dropped on merge) but the today* fields do not. So the
+# conversion zeroes today* whenever the source record was not written today,
+# in local time -- the records stamp updatedAt in UTC while the panel builds
+# its day window locally, which at this end of the evening is a whole day out.
+#
+# ONE ATTEMPT PER TICK, NO RETRY LOOP. herdr-remote retries with backoff because
+# a person is sitting there waiting to be attached. Here the timer IS the retry
+# loop, ten minutes away. Worse, a tailnet SSH policy set to "check" makes ssh
+# print a login URL and wait forever -- BatchMode does not stop it and
+# ConnectTimeout does not bound it, because the connection already succeeded.
+# Hence timeout around every remote call, and a failure that reports and moves
+# on rather than one that wedges a background job until someone notices.
+#
+# Safe to run by hand at any time. Reads remotes, writes only under
+# ~/.local/state/omarchy/agents/.
+
+set -uo pipefail
+
+#-------------------------------------------------------------------------------
+# EDIT HERE
+#-------------------------------------------------------------------------------
+# One row per machine to collect from:  <device-id>|<ssh-target>
+#
+# The device-id is the identity the panel counts devices by, and it is what the
+# snapshot is named. It must be unique and must NOT collide with this machine's
+# own hostname -- the local shell writes its own snapshot into the same folder,
+# and a duplicate id would merge the two into one device and lose a machine's
+# numbers rather than add them.
+#
+# Reached however ssh reaches them: a tailnet name, an ssh_config alias, a
+# user@host. Nothing is installed on the far end -- see the README.
+REMOTES=(
+  # "workshop|me@workshop"
+  # "laptop|me@laptop.tailnet-name.ts.net"
+)
+
+#-------------------------------------------------------------------------------
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/agents"
+SYNC_DIR="$STATE/sync"
+# Two outputs per machine, because they answer different questions.
+#
+#   sync/   the shape Omarchy's own agents panel merges. Usage only: it drops
+#           limits and plan on purpose, since a rate limit belongs to an ACCOUNT
+#           and averaging two accounts' percentages describes neither.
+#   fleet/  ours, the whole record. Which is the only way to answer "how are all
+#           four subscriptions doing" -- that question is per account per
+#           machine, and the merged view deliberately cannot express it.
+FLEET_DIR="$STATE/fleet"
+REMOTE_SNAPSHOT=".local/state/omarchy/agents/sync"
+REMOTE_RECORDS=".local/state/omarchy/agents/usage/"
+
+# BatchMode so it can never stop to ask a question in the background; keepalives
+# so a dropped tailnet link fails instead of hanging on a half-open socket.
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+
+quiet=0
+say() { (( quiet )) || printf '\033[2m%s\033[0m %s\n' "agents-pull" "$*"; }
+loud() { printf '\033[1;33m%s\033[0m %s\n' "agents-pull" "$*" >&2; }
+
+usage() { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; }
+
+# The snapshot the panel wants is the usage record with different field names
+# and an envelope around it. Doing that here rather than on each remote is what
+# lets a remote be unconfigured.
+#
+# The program is held in a variable and passed with -c rather than fed to
+# `python3 -` on stdin, because stdin is where the RECORDS arrive. The first
+# version did both, so python read the heredoc as its input, got a program where
+# it wanted JSON, and reported the remote as having no usage records.
+read -r -d '' CONVERTER <<'PY' || true
+import datetime as dt, json, sys
+
+device = sys.argv[1]
+records = json.load(sys.stdin)
+today = dt.date.today().isoformat()
+
+
+def written_today(record):
+    """Local-time day of the record's UTC updatedAt.
+
+    Both conversions matter: the collectors stamp +00:00 with fractional
+    seconds, and the panel's seven-day window is built in local time.
+    """
+    stamp = str(record.get("updatedAt") or "").strip()
+    if not stamp:
+        return False
+    if stamp.endswith("Z"):
+        stamp = stamp[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(stamp)
+    except ValueError:
+        return False
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    return parsed.date().isoformat() == today
+
+
+providers = {}
+for record in records:
+    agent = record.get("id")
+    if not agent:
+        continue
+    fresh = written_today(record)
+    providers[str(agent)] = {
+        "providerId": str(agent),
+        "providerName": str(record.get("name") or agent),
+        "ready": record.get("ready") is True,
+        "hasLocalStats": record.get("hasLocalStats") is not False,
+        "hasPromptStats": record.get("hasPromptStats") is not False,
+        # account-scoped stats are one upstream truth replicated on every
+        # machine; the panel takes the widest instead of summing. Carry the
+        # scope through or a shared account gets counted once per device.
+        "scope": str(record.get("scope") or "device"),
+        "todayPrompts": record.get("todayPrompts", 0) if fresh else 0,
+        "todaySessions": record.get("todaySessions", 0) if fresh else 0,
+        "todayTotalTokens": record.get("todayTotalTokens", 0) if fresh else 0,
+        "todayTokensByModel": record.get("todayTokensByModel") or {} if fresh else {},
+        "recentDays": record.get("recentDays") or [],
+        "totalPrompts": record.get("totalPrompts", 0),
+        "totalSessions": record.get("totalSessions", 0),
+        "activeDays": record.get("activeDays", 0),
+        "activeDates": record.get("activeDates") or [],
+        "modelUsage": record.get("modelUsage") or {},
+    }
+
+if not providers:
+    sys.exit(3)
+
+json.dump({
+    "schemaVersion": 1,
+    "deviceId": device,
+    "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    "providers": providers,
+}, sys.stdout, indent=2)
+sys.stdout.write("\n")
+PY
+
+convert() {
+  python3 -c "$CONVERTER" "$1"
+}
+
+# The record, whole, with the machine's name on it. No field renaming and no
+# dropping: the subscriptions view needs limits, tierLabel and resetsAt, which
+# is precisely what the merge format throws away.
+read -r -d '' FLEET <<'PY' || true
+import datetime as dt, json, sys
+
+device = sys.argv[1]
+records = json.load(sys.stdin)
+json.dump({
+    "schemaVersion": 1,
+    "deviceId": device,
+    "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    "agents": [r for r in records if isinstance(r, dict) and r.get("id")],
+}, sys.stdout, indent=2)
+sys.stdout.write("\n")
+PY
+
+# .part first, then mv. The panel's scan is a plain `for f in "$dir"/*.json; do
+# cat "$f"` loop with no idea about partial writes, so a file must never be
+# visible under its final name until it is whole.
+pull() {
+  local device=$1 target=$2
+  local final="$SYNC_DIR/$device.json" part="$SYNC_DIR/.$device.json.part"
+
+  # Always the raw records, never the remote's own pre-made snapshot: that
+  # snapshot has already had the limits stripped out of it, and the limits are
+  # the half of this that cannot be reconstructed here.
+  #
+  # The reader goes over stdin as a heredoc rather than as `python3 -c "..."`.
+  # Quoting a python one-liner through a local shell, ssh's own argv joining and
+  # then a remote shell means three levels of escaping over one string, and the
+  # first version of this silently sent a broken program and got back an empty
+  # line that only failed later as "no usage records". A heredoc has no quoting
+  # to get wrong.
+  local records
+  if ! records=$(timeout 45 "${SSH[@]}" "$target" python3 - <<'REMOTE' 2>/dev/null
+import glob, json, os
+
+root = os.path.expanduser("~/.local/state/omarchy/agents/usage")
+records = []
+for path in sorted(glob.glob(os.path.join(root, "*.json"))):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            records.append(json.load(handle))
+    except Exception:
+        continue
+print(json.dumps(records))
+REMOTE
+  ); then
+    rm -f "$part"
+    loud "$device: unreachable"
+    return 1
+  fi
+
+  if [[ -z ${records//[[:space:]]/} || $records == "[]" ]]; then
+    rm -f "$part"
+    loud "$device: no usage records"
+    return 1
+  fi
+
+  if ! convert "$device" <<<"$records" >"$part"; then
+    rm -f "$part"
+    loud "$device: no usage records"
+    return 1
+  fi
+  mv "$part" "$final"
+
+  # The whole record, limits and plan included, for the subscriptions view.
+  local fleet_final="$FLEET_DIR/$device.json" fleet_part="$FLEET_DIR/.$device.json.part"
+  if python3 -c "$FLEET" "$device" <<<"$records" >"$fleet_part"; then
+    mv "$fleet_part" "$fleet_final"
+  else
+    rm -f "$fleet_part"
+  fi
+
+  local subs
+  subs=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for a in d["agents"] if a.get("limits")))' "$fleet_final" 2>/dev/null || echo 0)
+  say "$device: $subs subscription(s), usage updated"
+}
+
+age_of() {
+  local file=$1
+  [[ -f $file ]] || { echo "never"; return; }
+  local seconds=$(( $(date +%s) - $(stat -c %Y "$file") ))
+  if (( seconds < 90 )); then echo "just now"
+  elif (( seconds < 5400 )); then echo "$(( seconds / 60 ))m ago"
+  elif (( seconds < 172800 )); then echo "$(( seconds / 3600 ))h ago"
+  else echo "$(( seconds / 86400 ))d ago"; fi
+}
+
+case "${1:-}" in
+--list)
+  printf '%-14s %-24s %-11s %-14s %s\n' DEVICE TARGET PULLED TOKENS-TODAY SUBSCRIPTIONS
+  for row in "${REMOTES[@]}"; do
+    IFS='|' read -r device target <<<"$row"
+    tokens=$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        doc = json.load(handle)
+except Exception:
+    print("-")
+    raise SystemExit
+total = 0
+for provider in (doc.get("providers") or {}).values():
+    total += int(provider.get("todayTotalTokens") or 0)
+print(format(total, ","))
+' "$SYNC_DIR/$device.json" 2>/dev/null || echo "-")
+    subs=$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        doc = json.load(handle)
+except Exception:
+    print("-")
+    raise SystemExit
+names = [a.get("name") or a.get("id") for a in doc.get("agents", []) if a.get("limits")]
+print(", ".join(names) if names else "none")
+' "$FLEET_DIR/$device.json" 2>/dev/null || echo "-")
+    printf '%-14s %-24s %-11s %-14s %s\n' "$device" "$target" "$(age_of "$SYNC_DIR/$device.json")" "$tokens" "$subs"
+  done
+  echo
+  echo "sync dir: $SYNC_DIR"
+  ls -1 "$SYNC_DIR"/*.json 2>/dev/null | sed 's|^|  |' || echo "  (empty)"
+  exit 0
+  ;;
+--quiet) quiet=1 ;;
+-h | --help)
+  usage
+  exit 0
+  ;;
+"") ;;
+*)
+  usage >&2
+  exit 2
+  ;;
+esac
+
+mkdir -p "$SYNC_DIR" "$FLEET_DIR"
+
+failed=0
+for row in "${REMOTES[@]}"; do
+  IFS='|' read -r device target <<<"$row"
+  pull "$device" "$target" || failed=$(( failed + 1 ))
+done
+
+# The dollars are this desk's own layer on top of the records -- see token-cost.
+# Refreshed on the same tick so the panel never shows fresh tokens beside a cost
+# from an hour ago.
+if command -v token-cost >/dev/null 2>&1; then
+  token-cost >/dev/null 2>&1 || loud "token-cost failed"
+fi
+
+# Exit 0 even with remotes down, and this is deliberate.
+#
+# A machine that is shut is the normal state of a fleet, not a fault. Exiting
+# non-zero for it leaves agents-pull.service sitting in `failed` permanently --
+# which trains you to ignore the one place that would have told you about a real
+# breakage. The unit's job is "did the sweep run", and it did.
+#
+# A fleet where NOTHING answered is different: that is usually this machine's
+# own network rather than everyone else's, so it says so once.
+if (( failed == ${#REMOTES[@]} && failed > 0 )); then
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send -u low -g "" "agents-pull" "no remotes reachable"
+  fi
+fi
+
+say "pulled $(( ${#REMOTES[@]} - failed )) of ${#REMOTES[@]}"
+exit 0

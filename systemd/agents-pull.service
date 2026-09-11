@@ -1,0 +1,13 @@
+[Unit]
+Description=Collect AI agent usage from the other machines on this tailnet
+Documentation=https://github.com/inocult/omarchy-token-monitor
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/agents-pull --quiet
+
+# The timer is the retry loop. A remote that is shut is the normal case, not a
+# failure worth restarting into -- and an unattended ssh that stops to ask a
+# question would be retried forever rather than once.
+Restart=no
+TimeoutStartSec=180

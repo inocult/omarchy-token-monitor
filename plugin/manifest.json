@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "id": "inocult.token-monitor",
+  "name": "Token Monitor",
+  "version": "1.0.0",
+  "author": "inocult",
+  "license": "MIT",
+  "description": "Tokens and dollars for every AI coding agent on the desk, as a wing dashboard and a bar readout.",
+  "keepLoaded": true,
+  "kinds": [
+    "panel",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "panel": "Wing.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Token Monitor",
+    "description": "Today's spend and every subscription's limits. Click for the panel, middle-click for the wing.",
+    "category": "AI",
+    "defaultSection": "right",
+    "allowMultiple": false,
+    "defaults": {
+      "monitor": "",
+      "heightPercent": 0,
+      "showCost": true,
+      "refreshIntervalSec": 600,
+      "view": "machine",
+      "mode": "wing"
+    },
+    "schema": [
+      {
+        "key": "mode",
+        "type": "enum",
+        "label": "Dashboard surface",
+        "options": [
+          "wing",
+          "window",
+          "off"
+        ],
+        "defaultValue": "wing",
+        "description": "wing pins it to a screen and reserves its height; window makes it an ordinary tiled window; off leaves only the bar panel."
+      },
+      {
+        "key": "view",
+        "type": "enum",
+        "label": "Default view",
+        "options": [
+          "machine",
+          "subscription"
+        ],
+        "defaultValue": "machine",
+        "description": "Which pivot the panel opens on: machines and what each is signed into, or plans and where each is used."
+      },
+      {
+        "key": "monitor",
+        "type": "string",
+        "label": "Wing monitor",
+        "defaultValue": "",
+        "description": "Connector the dashboard is pinned to, e.g. DVI-I-1. Empty picks the tallest portrait screen."
+      },
+      {
+        "key": "heightPercent",
+        "type": "integer",
+        "label": "Wing height (% of the screen, 0 = fit content)",
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 0,
+        "description": "0 sizes the dashboard to its own content and reserves exactly that, so the rest of the workspace tiles normally. 100 gives it the whole wing."
+      },
+      {
+        "key": "showCost",
+        "type": "boolean",
+        "label": "Show cost",
+        "defaultValue": true
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 60,
+        "max": 3600,
+        "step": 60,
+        "defaultValue": 600
+      }
+    ]
+  }
+}
