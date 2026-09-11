@@ -28,6 +28,12 @@ workshop                                    211k      $0.42
     ...
 ```
 
+Sections state their conclusion and open for the working, rather than laying
+everything out at once — for a panel you open to ask "how close am I to the
+ceiling", scrolling past the answer to find it is the wrong shape. Without
+touching anything you get today's spend and one bar per machine against its
+tightest allowance.
+
 Headline figures are scoped to what this machine actually knows: with other
 machines reporting in, they are fleet totals and say so; on its own, they are
 simply this machine's and the scope line disappears. The local day is priced
@@ -101,6 +107,11 @@ o.window({ title = "^Token Monitor$" }, { workspace = "1 silent" })
 ```
 
 ## Settings
+
+There is a **Settings** section at the bottom of the panel — Omarchy stores a
+widget's settings in `shell.json` and a manifest can declare a schema for them,
+but nothing in the shipped shell renders that schema into a form, so this draws
+its own. Everything is also reachable from the command line:
 
 `omarchy bar set inocult.token-monitor <key> <value>` (append `--json` for
 numbers and booleans, omit it for strings):

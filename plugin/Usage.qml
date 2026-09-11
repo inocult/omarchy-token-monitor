@@ -49,6 +49,7 @@ Item {
 
   readonly property var limits: revision, Model.limitRows(records)
   readonly property var week: revision, Model.weekRows(records, snapshots)
+  readonly property var weekStats: revision, Model.weekStats(week)
   readonly property var devices: revision, Model.deviceRows(snapshots, hostname, records, nowMs)
   readonly property var subscriptions: revision, Model.subscriptionRows(records, hostname, fleet)
   readonly property var machines: revision, Model.machineGroups(records, hostname, fleet, nowMs)

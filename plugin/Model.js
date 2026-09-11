@@ -404,6 +404,50 @@ function subscriptionRows(localRecords, localName, fleet) {
   return rows
 }
 
+// Enough about the week to say something, rather than seven bars and no
+// conclusion. Trend is the second half against the first, which on a 7-day
+// window is the only comparison the data actually supports.
+function weekStats(week) {
+  var rows = week || []
+  var total = 0
+  var peak = 0
+  var peakLabel = ""
+  var active = 0
+
+  for (var i = 0; i < rows.length; i++) {
+    var tokens = Number(rows[i].tokens || 0)
+    total += tokens
+    if (tokens > 0) active++
+    if (tokens > peak) {
+      peak = tokens
+      peakLabel = rows[i].label
+    }
+  }
+
+  var half = Math.floor(rows.length / 2)
+  var older = 0
+  var newer = 0
+  for (var o = 0; o < half; o++) older += Number(rows[o].tokens || 0)
+  for (var n = rows.length - half; n < rows.length; n++) newer += Number(rows[n].tokens || 0)
+
+  return {
+    total: total,
+    peak: peak,
+    peakLabel: peakLabel,
+    activeDays: active,
+    // Average over days that actually had work, not over the calendar: a
+    // weekend off is not a 40% drop in how hard the week was worked.
+    average: active > 0 ? total / active : 0,
+    trend: older > 0 ? (newer - older) / older : 0,
+    hasTrend: older > 0 && newer > 0
+  }
+}
+
+function signedPercent(ratio) {
+  var pct = Math.round((Number(ratio) || 0) * 100)
+  return (pct > 0 ? "+" : "") + pct + "%"
+}
+
 // ---------------------------------------------------------------- machines
 //
 // The same facts as subscriptionRows, pivoted. Machine first, then what that

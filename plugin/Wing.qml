@@ -112,6 +112,17 @@ Item {
     return best
   }
 
+  // A panel plugin has no settings injected, but it does get the shell facade,
+  // and that carries the same writer the bar widgets use.
+  function writeSetting(key, value) {
+    var entry = { id: "inocult.token-monitor" }
+    for (var existing in config) if (existing !== "id") entry[existing] = config[existing]
+    entry[key] = value
+    delete entry.mode
+    if (shell && typeof shell.updateEntryInline === "function")
+      shell.updateEntryInline("inocult.token-monitor", entry)
+  }
+
   Usage { id: usage }
 
   // What the dashboard actually needs, clamped so a very long fleet scrolls
@@ -194,6 +205,8 @@ Item {
         width: flick.width
         usage: usage
         showCost: root.showCost
+        settingsSource: root.config
+        settingsWriter: function (key, value) { root.writeSetting(key, value) }
         // Initial value, not a binding: a binding would snap the chips back to
         // the configured default the moment anything re-evaluated it.
         Component.onCompleted: view = String(root.setting("view", "machine"))
@@ -236,6 +249,8 @@ Item {
         width: parent.width
         usage: usage
         showCost: root.showCost
+        settingsSource: root.config
+        settingsWriter: function (key, value) { root.writeSetting(key, value) }
         Component.onCompleted: view = String(root.setting("view", "machine"))
       }
     }

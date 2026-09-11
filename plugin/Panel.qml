@@ -144,6 +144,9 @@ Panel {
         width: flick.width
         usage: usage
         showCost: root.showCost
+        compact: true
+        settingsSource: root.settings
+        settingsWriter: function (key, value) { root.writeSetting(key, value) }
         // Initial value, not a binding: a binding would snap the chips back to
         // the configured default the moment anything re-evaluated it.
         Component.onCompleted: view = String(root.setting("view", "machine"))
