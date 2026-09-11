@@ -145,7 +145,8 @@ Column {
         Text {
           anchors.bottom: parent.bottom
           anchors.bottomMargin: Style.space(1)
-          text: root.usage && root.usage.priced ? Model.moneyExact(root.usage.todayCost) : "--"
+          text: !root.usage || !root.usage.priced ? "--"
+            : Model.moneyExact(root.usage.hub ? root.usage.todayCostTotal : root.usage.todayCost)
           color: root.fg
           font.family: root.face
           font.pixelSize: Style.font.display
@@ -189,13 +190,19 @@ Column {
       }
     }
 
-    // The dollars are this machine's transcripts priced exactly; the tokens are
-    // the whole fleet. A number that quietly means something narrower than the
-    // one beside it is how a dashboard starts lying.
+    // What the two figures above are actually the sum of. With one machine
+    // there is nothing to say -- they are this machine, obviously -- so the
+    // line disappears rather than stating the obvious in every panel.
     Text {
-      visible: root.showCost && root.usage && root.usage.priced && root.usage.todayCostLocalOnly
+      visible: root.usage && root.usage.hub
       width: parent.width
-      text: "cost is this machine only"
+      text: {
+        if (!root.usage) return ""
+        var n = root.usage.devices.length
+        var scope = "all " + n + " machines"
+        return root.showCost && root.usage.todayCostEstimated
+          ? scope + " · other machines' cost estimated" : scope
+      }
       color: root.fainter
       elide: Text.ElideRight
       font.family: root.face

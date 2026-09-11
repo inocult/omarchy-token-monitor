@@ -108,10 +108,28 @@ Item {
     return total
   }
 
-  // Remote machines have no cost sidecar of their own, so their share is
-  // priced here from the model split in their snapshot. Said plainly in the
-  // UI rather than folded in silently, because it is a different method.
-  readonly property bool todayCostLocalOnly: snapshots.length > 0
+  // Is this machine aggregating a fleet, or just reporting on itself? Every
+  // headline figure changes meaning between those two, so it is asked once
+  // here rather than inferred in three places.
+  readonly property bool hub: revision, devices.length > 1
+
+  // Today, across everything this machine knows about. The local part is exact;
+  // the remote part is estimated from each machine's own model mix, because
+  // nothing of ours runs there to bucket its day properly.
+  readonly property var remoteToday: {
+    revision
+    var total = 0
+    var estimated = false
+    for (var i = 0; i < snapshots.length; i++) {
+      var part = Model.estimateTodayCost((snapshots[i] || {}).providers)
+      total += part.cost
+      estimated = estimated || part.estimated
+    }
+    return { cost: total, estimated: estimated }
+  }
+
+  readonly property real todayCostTotal: todayCost + remoteToday.cost
+  readonly property bool todayCostEstimated: remoteToday.estimated
 
   readonly property bool priced: {
     revision

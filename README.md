@@ -8,9 +8,11 @@ A bar panel that behaves like the network and bluetooth ones, and the same
 dashboard again as either a screen-pinned strip or an ordinary tiled window.
 
 ```
-$27.01 today                                        ● just now
-37,628,315 tokens  ·  2 machines
-cost is this machine only
+ Token Monitor                              [ on ]
+ UPDATED JUST NOW
+
+ $47.65 today                          74M tokens
+ all 2 machines
 
 [ By machine ]  By subscription
 
@@ -25,6 +27,12 @@ workshop                                    211k      $0.42
   ✳ Claude Code  Max 5x
     ...
 ```
+
+Headline figures are scoped to what this machine actually knows: with other
+machines reporting in, they are fleet totals and say so; on its own, they are
+simply this machine's and the scope line disappears. The local day is priced
+exactly from transcripts; a remote's day is estimated from that machine's own
+model mix, and is labelled as an estimate whenever it contributes.
 
 ## Why it exists
 

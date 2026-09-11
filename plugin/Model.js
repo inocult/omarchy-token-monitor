@@ -164,6 +164,50 @@ function priceModelUsage(modelUsage) {
   return { models: rows, tokens: tokens, cost: cost, complete: complete }
 }
 
+// A remote machine has no cost sidecar of its own -- nothing of ours runs
+// there. What its snapshot does carry is today's tokens per model as a single
+// number, plus that model's all-time four-way split. Splitting today by that
+// model's own long-run mix is an estimate, but a far better one than any flat
+// assumption: it is the same model doing the same kind of work, and the ratio
+// that matters (cache reads against output) is a property of how the agent is
+// used rather than of the day.
+//
+// Still an estimate, and labelled as one wherever it is shown. The local
+// machine's figure is never estimated -- token-cost buckets the real four
+// categories per day from the transcripts.
+function estimateTodayCost(providers) {
+  var total = 0
+  var estimated = false
+
+  for (var id in (providers || {})) {
+    var stats = providers[id] || {}
+    var today = stats.todayTokensByModel || {}
+    var allTime = stats.modelUsage || {}
+
+    for (var model in today) {
+      var tokens = Number(today[model] || 0)
+      if (!tokens) continue
+
+      var mix = bucketOf(allTime[model])
+      var mixTotal = bucketTotal(mix)
+      if (!mixTotal) continue
+
+      var cost = costOf({
+        input: mix.input / mixTotal * tokens,
+        output: mix.output / mixTotal * tokens,
+        cacheWrite: mix.cacheWrite / mixTotal * tokens,
+        cacheRead: mix.cacheRead / mixTotal * tokens
+      }, model)
+
+      if (cost !== null) {
+        total += cost
+        estimated = true
+      }
+    }
+  }
+  return { cost: total, estimated: estimated }
+}
+
 // ------------------------------------------------------------------ devices
 //
 // One row per machine. The panel that ships with Omarchy merges the fleet into
